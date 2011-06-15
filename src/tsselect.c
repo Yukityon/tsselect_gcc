@@ -2,12 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <io.h>
+#include <sys/io.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#define 
+#define __int64 int64_t
+
 
 typedef struct {
 
@@ -195,19 +196,19 @@ static void tsdump(const char *path)
 	resync_log_max = sizeof(resync_report)/sizeof(RESYNC_REPORT);
 	resync_count = 0;
 	
-	fd = _open(path, _O_BINARY|_O_RDONLY|_O_SEQUENTIAL);
+	fd = open(path, O_RDONLY);
 	if(fd < 0){
 		fprintf(stderr, "error - failed on open(%s) [src]\n", path);
 		goto LAST;
 	}
 
-	_lseeki64(fd, 0, SEEK_END);
-	total = _telli64(fd);
-	_lseeki64(fd, 0, SEEK_SET);
+	lseek64(fd, 0, SEEK_END);
+	total = lseek64(fd, 0, SEEK_CUR);
+	lseek64(fd, 0, SEEK_SET);
 
 	stat = (TS_STATUS *)calloc(8192, sizeof(TS_STATUS));
 	if(stat == NULL){
-		fprintf(stderr, "error - failed on malloc(size=%d)\n", sizeof(TS_STATUS)*8192);
+		fprintf(stderr, "error - failed on malloc(size=%ld)\n", sizeof(TS_STATUS)*8192);
 		goto LAST;
 	}
 
@@ -219,7 +220,7 @@ static void tsdump(const char *path)
 
 	offset = 0;
 	idx = 0;
-	n = _read(fd, buf, sizeof(buf));
+	n = read(fd, buf, sizeof(buf));
 
 	unit_size = select_unit_size(buf, buf+n);
 	if(unit_size < 188){
@@ -317,7 +318,7 @@ static void tsdump(const char *path)
 		if(n > 0){
 			memcpy(buf, curr, n);
 		}
-		m = _read(fd, buf+n, sizeof(buf)-n);
+		m = read(fd, buf+n, sizeof(buf)-n);
 		if(m < 1){
 			break;
 		}
@@ -410,7 +411,7 @@ LAST:
 	if(stat){
 		for(i=0;i<8192;i++){
 			if(stat[i].total > 0){
-				printf("pid=0x%04x, total=%8I64d, d=%3I64d, e=%3I64d, scrambling=%I64d, offset=%I64d\n", i, stat[i].total, stat[i].drop, stat[i].error, stat[i].scrambling, stat[i].first);
+				printf("pid=0x%04x, total=%8ld, d=%3ld, e=%3ld, scrambling=%ld, offset=%ld\n", i, stat[i].total, stat[i].drop, stat[i].error, stat[i].scrambling, stat[i].first);
 			}
 		}
 		free(stat);
@@ -418,7 +419,7 @@ LAST:
 	}
 
 	if(fd >= 0){
-		_close(fd);
+		close(fd);
 		fd = -1;
 	}
 }
@@ -445,25 +446,25 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 	sfd = -1;
 	dfd = -1;
 
-	sfd = _open(src, _O_BINARY|_O_RDONLY|_O_SEQUENTIAL);
+	sfd = open(src, O_RDONLY);
 	if(sfd < 0){
 		fprintf(stderr, "error - failed on open(%s) [src]\n", src);
 		goto LAST;
 	}
 
-	dfd = _open(dst, _O_WRONLY|_O_BINARY|_O_CREAT|_O_TRUNC, _S_IREAD|_S_IWRITE);
+	dfd = open(dst, O_WRONLY|O_CREAT|O_TRUNC, S_IRWXU|S_IRGRP|S_IROTH);
 	if(dfd < 0){
 		fprintf(stderr, "error - failed on open(%s) [dst]\n", dst);
 		goto LAST;
 	}
 
-	_lseeki64(sfd, 0, SEEK_END);
-	total = _telli64(sfd);
-	_lseeki64(sfd, 0, SEEK_SET);
+	lseek64(sfd, 0, SEEK_END);
+	total = lseek(sfd,0,SEEK_CUR);
+	lseek64(sfd, 0, SEEK_SET);
 
 	offset = 0;
 	idx = 0;
-	n = _read(sfd, buf, sizeof(buf));
+	n = read(sfd, buf, sizeof(buf));
 
 	unit_size = select_unit_size(buf, buf+n);
 	if(unit_size < 188){
@@ -487,7 +488,7 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 			}
 			extract_ts_header(&header, curr);
 			if(pid[header.pid] != 0){
-				m = _write(dfd, curr, 188);
+				m = write(dfd, curr, 188);
 				if(m != 188){
 					fprintf(stderr, "error - failed on write() [dst]\n");
 					goto LAST;
@@ -508,7 +509,7 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 		if(n > 0){
 			memcpy(buf, curr, n);
 		}
-		m = _read(sfd, buf+n, sizeof(buf)-n);
+		m = read(sfd, buf+n, sizeof(buf)-n);
 		if(m < 1){
 			break;
 		}
@@ -530,7 +531,7 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 		}
 		extract_ts_header(&header, curr);
 		if(pid[header.pid] != 0){
-			m = _write(dfd, curr, 188);
+			m = write(dfd, curr, 188);
 			if(m != 188){
 				fprintf(stderr, "error - failed on write() [dst]\n");
 				goto LAST;
@@ -543,11 +544,11 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 
 LAST:
 	if(dfd >= 0){
-		_close(dfd);
+		close(dfd);
 		dfd = -1;
 	}
 	if(sfd >= 0){
-		_close(sfd);
+		close(sfd);
 		sfd = -1;
 	}
 }
@@ -842,13 +843,13 @@ static void print_resync_report(RESYNC_REPORT *report, int count, int max)
 	}
 
 	for(i=0;i<m;i++){
-		printf("  resync[%d] : miss=0x%012I64x, sync=0x%012I64x, drop=%I64d\n", i, report[i].miss, report[i].sync, report[i].drop_count);
+		printf("  resync[%d] : miss=0x%012lx, sync=0x%012lx, drop=%ld\n", i, report[i].miss, report[i].sync, report[i].drop_count);
 		n = (int)report[i].drop_count;
 		if(n > 4){
 			n = 4;
 		}
 		for(j=0;j<n;j++){
-			printf("    drop[%d] : pid=0x%04x, pos=0x%012I64x\n", j, report[i].drop_pid[j], report[i].drop_pos[j]);
+			printf("    drop[%d] : pid=0x%04x, pos=0x%012lx\n", j, report[i].drop_pid[j], report[i].drop_pos[j]);
 		}			
 	}
 }
@@ -876,10 +877,10 @@ static void show_tdt_or_tot(TS_HEADER *hdr, unsigned char *packet, __int64 pos)
 	
 	if(table_id == 0x70){
 		/* TDT */
-		fprintf(stdout, "TDT: [%02x:%02x:%02x] offset=%I64d\n", p[2], p[3], p[4], pos);
+		fprintf(stdout, "TDT: [%02x:%02x:%02x] offset=%ld\n", p[2], p[3], p[4], pos);
 	}else if(table_id == 0x73){
 		/* TOT */
-		fprintf(stdout, "TOT: [%02x:%02x:%02x] offset=%I64d\n", p[2], p[3], p[4], pos);
+		fprintf(stdout, "TOT: [%02x:%02x:%02x] offset=%ld\n", p[2], p[3], p[4], pos);
 	}
 }
 
