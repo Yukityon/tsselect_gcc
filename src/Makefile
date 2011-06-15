@@ -3,14 +3,19 @@ CC = gcc
 CFLAGS = -O2
 LDFLAGS =
 OBJS = tsselect.o
+PROGRAM = tsselect
+DEST = /usr/local/bin
 
-tsselect: $(OBJS)
+$(PROGRAM): $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(OBJS)
 
 .c.o:
 	$(CC) $(CFLAGS) -c $<
 
-all:tsselect
+all:$(PROGRAM)
 
 clean:
-	rm $(OBJS) tsselect
+	rm $(OBJS) $(PROGRAM)
+
+install:$(PROGRAM)
+	install -s $(PROGRAM) $(DEST)
