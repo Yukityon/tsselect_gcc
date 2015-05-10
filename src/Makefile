@@ -19,3 +19,4 @@ clean:
 
 install:$(PROGRAM)
 	install -s $(PROGRAM) $(DEST)
+

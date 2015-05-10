@@ -32,10 +32,10 @@ typedef struct {
 	__int64       sync;
 
 	__int64       drop_count;
-	
+
 	short         drop_pid[4];
 	__int64       drop_pos[4];
-	
+
 } RESYNC_REPORT;
 
 typedef struct {
@@ -52,7 +52,7 @@ typedef struct {
 typedef struct {
 
 	int           adaptation_field_length;
-	
+
 	int           discontinuity_counter;
 	int           random_access_indicator;
 	int           elementary_stream_priority_indicator;
@@ -68,7 +68,7 @@ typedef struct {
 	int           splice_countdown;
 
 	int           transport_private_data_length;
-	
+
 	int           adaptation_field_extension_length;
 	int           ltw_flag;
 	int           piecewise_rate_flag;
@@ -78,7 +78,7 @@ typedef struct {
 	int           piecewise_rate;
 	int           splice_type;
 	__int64       dts_next_au;
-	
+
 } ADAPTATION_FIELD;
 
 static void show_usage();
@@ -114,7 +114,7 @@ int main(int argc, char **argv)
 		memset(pid, 0, sizeof(pid));
 		exclude = 0;
 		for(i=3;i<argc;i++){
-			
+
 			if(argv[i][0] == '-'){
 				if( (argv[i][1] == 'x') ||
 				    (argv[i][1] == 'X') ){
@@ -126,13 +126,13 @@ int main(int argc, char **argv)
 				}
 				continue;
 			}
-			
+
 			n = strtol(argv[i], NULL, 0);
 			if( (n >= 0) && (n < 8192) ){
 				pid[n] = 1;
 			}
 		}
-		
+
 		if(exclude){
 			for(i=0;i<8192;i++){
 				pid[i] = !pid[i];
@@ -178,11 +178,11 @@ static void tsdump(const char *path)
 	TS_STATUS *stat;
 	TS_HEADER  header;
 	ADAPTATION_FIELD adapt;
-	
+
 	RESYNC_REPORT resync_report[8];
 	int resync_count;
 	int resync_log_max;
-	
+
 	unsigned char *p;
 	unsigned char *curr;
 	unsigned char *tail;
@@ -195,7 +195,7 @@ static void tsdump(const char *path)
 	memset(resync_report, 0, sizeof(resync_report));
 	resync_log_max = sizeof(resync_report)/sizeof(RESYNC_REPORT);
 	resync_count = 0;
-	
+
 	fd = open(path, O_RDONLY);
 	if(fd < 0){
 		fprintf(stderr, "error - failed on open(%s) [src]\n", path);
@@ -249,14 +249,14 @@ static void tsdump(const char *path)
 					break;
 				}
 			}
-			
+
 			extract_ts_header(&header, curr);
 			if(header.adaptation_field_control & 2){
 				extract_adaptation_field(&adapt, curr+4);
 			}else{
 				memset(&adapt, 0, sizeof(adapt));
 			}
-			
+
 			pid = header.pid;
 			if(stat[pid].first < 0){
 				stat[pid].first = offset + (curr-buf);
@@ -407,7 +407,7 @@ LAST:
 	if(resync_count > 0){
 		print_resync_report(resync_report, resync_count, resync_log_max);
 	}
-	
+
 	if(stat){
 		for(i=0;i<8192;i++){
 			if(stat[i].total > 0){
@@ -671,7 +671,7 @@ static void extract_adaptation_field(ADAPTATION_FIELD *dst, unsigned char *data)
 	unsigned char *tail;
 
 	p = data;
-	
+
 	memset(dst, 0, sizeof(ADAPTATION_FIELD));
 	if( (p[0] == 0) || (p[0] > 183) ){
 		return;
@@ -693,9 +693,9 @@ static void extract_adaptation_field(ADAPTATION_FIELD *dst, unsigned char *data)
 	dst->splicing_point_flag = (p[0] >> 2) & 1;
 	dst->transport_private_data_flag = (p[0] >> 1) & 1;
 	dst->adaptation_field_extension_flag = p[0] & 1;
-	
+
 	p += 1;
-	
+
 	if(dst->pcr_flag != 0){
 		if( (p+6) > tail ){
 			memset(dst, 0, sizeof(ADAPTATION_FIELD));
@@ -850,7 +850,7 @@ static void print_resync_report(RESYNC_REPORT *report, int count, int max)
 		}
 		for(j=0;j<n;j++){
 			printf("    drop[%d] : pid=0x%04x, pos=0x%012lx\n", j, report[i].drop_pid[j], report[i].drop_pos[j]);
-		}			
+		}
 	}
 }
 
@@ -874,7 +874,7 @@ static void show_tdt_or_tot(TS_HEADER *hdr, unsigned char *packet, __int64 pos)
 	table_id = p[0];
 	length = ((p[1]<<8)|p[2]) & 0x0fff;
 	p += 3;
-	
+
 	if(table_id == 0x70){
 		/* TDT */
 		fprintf(stdout, "TDT: [%02x:%02x:%02x] offset=%ld\n", p[2], p[3], p[4], pos);
