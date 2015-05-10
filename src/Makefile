@@ -1,6 +1,6 @@
 
 CC = gcc
-CFLAGS = -O2
+CFLAGS = -O2 -D_LARGEFILE64_SOURCE
 LDFLAGS =
 OBJS = tsselect.o
 PROGRAM = tsselect

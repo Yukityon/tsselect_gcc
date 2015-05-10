@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 #define __int64 int64_t
 
@@ -459,7 +460,7 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 	}
 
 	lseek64(sfd, 0, SEEK_END);
-	total = lseek(sfd,0,SEEK_CUR);
+	total = lseek64(sfd,0,SEEK_CUR);
 	lseek64(sfd, 0, SEEK_SET);
 
 	offset = 0;
