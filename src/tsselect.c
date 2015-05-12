@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <inttypes.h>
 
 #define __int64 int64_t
 
@@ -412,7 +413,7 @@ LAST:
 	if(stat){
 		for(i=0;i<8192;i++){
 			if(stat[i].total > 0){
-				printf("pid=0x%04x, total=%8ld, d=%3ld, e=%3ld, scrambling=%ld, offset=%ld\n", i, stat[i].total, stat[i].drop, stat[i].error, stat[i].scrambling, stat[i].first);
+				printf("pid=0x%04x, total=%8"PRId64", d=%3"PRId64", e=%3"PRId64", scrambling=%"PRId64", offset=%"PRId64"\n", i, stat[i].total, stat[i].drop, stat[i].error, stat[i].scrambling, stat[i].first);
 			}
 		}
 		free(stat);
@@ -844,13 +845,13 @@ static void print_resync_report(RESYNC_REPORT *report, int count, int max)
 	}
 
 	for(i=0;i<m;i++){
-		printf("  resync[%d] : miss=0x%012lx, sync=0x%012lx, drop=%ld\n", i, report[i].miss, report[i].sync, report[i].drop_count);
+		printf("  resync[%d] : miss=0x%012"PRIx64", sync=0x%012"PRIx64", drop=%"PRId64"\n", i, report[i].miss, report[i].sync, report[i].drop_count);
 		n = (int)report[i].drop_count;
 		if(n > 4){
 			n = 4;
 		}
 		for(j=0;j<n;j++){
-			printf("    drop[%d] : pid=0x%04x, pos=0x%012lx\n", j, report[i].drop_pid[j], report[i].drop_pos[j]);
+			printf("    drop[%d] : pid=0x%04x, pos=0x%012"PRIx64"\n", j, report[i].drop_pid[j], report[i].drop_pos[j]);
 		}
 	}
 }
@@ -878,10 +879,10 @@ static void show_tdt_or_tot(TS_HEADER *hdr, unsigned char *packet, __int64 pos)
 
 	if(table_id == 0x70){
 		/* TDT */
-		fprintf(stdout, "TDT: [%02x:%02x:%02x] offset=%ld\n", p[2], p[3], p[4], pos);
+		fprintf(stdout, "TDT: [%02x:%02x:%02x] offset=%"PRId64"\n", p[2], p[3], p[4], pos);
 	}else if(table_id == 0x73){
 		/* TOT */
-		fprintf(stdout, "TOT: [%02x:%02x:%02x] offset=%ld\n", p[2], p[3], p[4], pos);
+		fprintf(stdout, "TOT: [%02x:%02x:%02x] offset=%"PRId64"\n", p[2], p[3], p[4], pos);
 	}
 }
 
