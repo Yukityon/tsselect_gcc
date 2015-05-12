@@ -165,7 +165,7 @@ static void show_usage()
 
 static void tsdump(const char *path)
 {
-	int fd;
+	FILE *fp;
 
 	int pid;
 	int idx;
@@ -190,22 +190,22 @@ static void tsdump(const char *path)
 
 	unsigned char buf[8192];
 
-	fd = -1;
+	fp = NULL;
 	stat = NULL;
 
 	memset(resync_report, 0, sizeof(resync_report));
 	resync_log_max = sizeof(resync_report)/sizeof(RESYNC_REPORT);
 	resync_count = 0;
 
-	fd = open(path, O_RDONLY);
-	if(fd < 0){
+	fp = fopen(path, "r");
+	if(fp == NULL){
 		fprintf(stderr, "error - failed on open(%s) [src]\n", path);
 		goto LAST;
 	}
 
-	lseek64(fd, 0, SEEK_END);
-	total = lseek64(fd, 0, SEEK_CUR);
-	lseek64(fd, 0, SEEK_SET);
+	fseeko(fp, 0, SEEK_END);
+	total = ftello(fp);
+	fseeko(fp, 0, SEEK_SET);
 
 	stat = (TS_STATUS *)calloc(8192, sizeof(TS_STATUS));
 	if(stat == NULL){
@@ -221,7 +221,7 @@ static void tsdump(const char *path)
 
 	offset = 0;
 	idx = 0;
-	n = read(fd, buf, sizeof(buf));
+	n = fread(buf, 1, sizeof(buf), fp);
 
 	unit_size = select_unit_size(buf, buf+n);
 	if(unit_size < 188){
@@ -319,7 +319,7 @@ static void tsdump(const char *path)
 		if(n > 0){
 			memcpy(buf, curr, n);
 		}
-		m = read(fd, buf+n, sizeof(buf)-n);
+		m = fread(buf+n, 1, sizeof(buf)-n, fp);
 		if(m < 1){
 			break;
 		}
@@ -419,15 +419,15 @@ LAST:
 		stat = NULL;
 	}
 
-	if(fd >= 0){
-		close(fd);
-		fd = -1;
+	if(fp != NULL){
+		fclose(fp);
+		fp = NULL;
 	}
 }
 
 static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 {
-	int sfd,dfd;
+	FILE *sfp, *dfp;
 
 	int m,n;
 	int idx;
@@ -444,28 +444,28 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 
 	unsigned char buf[8192];
 
-	sfd = -1;
-	dfd = -1;
+	sfp = NULL;
+	dfp = NULL;
 
-	sfd = open(src, O_RDONLY);
-	if(sfd < 0){
+	sfp = fopen(src, "r");
+	if(sfp == NULL){
 		fprintf(stderr, "error - failed on open(%s) [src]\n", src);
 		goto LAST;
 	}
 
-	dfd = open(dst, O_WRONLY|O_CREAT|O_TRUNC, S_IRWXU|S_IRGRP|S_IROTH);
-	if(dfd < 0){
+	dfp = fopen(dst, "w");
+	if(dfp == NULL){
 		fprintf(stderr, "error - failed on open(%s) [dst]\n", dst);
 		goto LAST;
 	}
 
-	lseek64(sfd, 0, SEEK_END);
-	total = lseek64(sfd,0,SEEK_CUR);
-	lseek64(sfd, 0, SEEK_SET);
+	fseeko(sfp, 0, SEEK_END);
+	total = ftello(sfp);
+	fseeko(sfp, 0, SEEK_SET);
 
 	offset = 0;
 	idx = 0;
-	n = read(sfd, buf, sizeof(buf));
+	n = fread(buf, 1, sizeof(buf), sfp);
 
 	unit_size = select_unit_size(buf, buf+n);
 	if(unit_size < 188){
@@ -489,7 +489,7 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 			}
 			extract_ts_header(&header, curr);
 			if(pid[header.pid] != 0){
-				m = write(dfd, curr, 188);
+				m = fwrite(curr, 1, 188, dfp);
 				if(m != 188){
 					fprintf(stderr, "error - failed on write() [dst]\n");
 					goto LAST;
@@ -510,7 +510,7 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 		if(n > 0){
 			memcpy(buf, curr, n);
 		}
-		m = read(sfd, buf+n, sizeof(buf)-n);
+		m = fread(buf+n, 1, sizeof(buf)-n, sfp);
 		if(m < 1){
 			break;
 		}
@@ -532,7 +532,7 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 		}
 		extract_ts_header(&header, curr);
 		if(pid[header.pid] != 0){
-			m = write(dfd, curr, 188);
+			m = fwrite(curr, 1, 188, dfp);
 			if(m != 188){
 				fprintf(stderr, "error - failed on write() [dst]\n");
 				goto LAST;
@@ -544,13 +544,13 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 	fprintf(stderr, "\rprocessing: finish\n");
 
 LAST:
-	if(dfd >= 0){
-		close(dfd);
-		dfd = -1;
+	if(dfp != NULL){
+		fclose(dfp);
+		dfp = NULL;
 	}
-	if(sfd >= 0){
-		close(sfd);
-		sfd = -1;
+	if(sfp != NULL){
+		fclose(sfp);
+		sfp = NULL;
 	}
 }
 
