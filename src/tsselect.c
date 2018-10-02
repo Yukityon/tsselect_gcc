@@ -11,6 +11,11 @@
 #define FOPEN_BINARY
 #endif
 
+/* report drops as with resync */
+#ifndef REPORT_DROP
+#define REPORT_DROP 1
+#endif
+
 typedef struct {
 
 	int           pid;
@@ -24,6 +29,7 @@ typedef struct {
 
 	unsigned char last_packet[188];
 	int           duplicate_count;
+	int           report_drop;
 
 } TS_STATUS;
 
@@ -172,6 +178,7 @@ static void tsdump(const char *path)
 	int lcc;
 	int i,m,n;
 	int unit_size;
+	int dropped;
 
 	int64_t offset;
 	int64_t total;
@@ -236,6 +243,7 @@ static void tsdump(const char *path)
 		stat[i].pid = i;
 		stat[i].last_continuity_counter = -1;
 		stat[i].first = -1;
+		stat[i].report_drop = REPORT_DROP;
 	}
 
 	offset = 0;
@@ -265,6 +273,9 @@ static void tsdump(const char *path)
 					resync_report[resync_count].sync = offset+(curr-buf);
 				}
 				resync_count += 1;
+				for(i=0;i<8192;i++){
+					stat[i].report_drop = 0;
+				}
 				if( (curr+unit_size) > tail ){
 					break;
 				}
@@ -283,37 +294,49 @@ static void tsdump(const char *path)
 			}
 			lcc = stat[pid].last_continuity_counter;
 			if( (lcc >= 0) && (adapt.discontinuity_counter == 0) ){
+				dropped = 0;
 				if( pid == 0x1fff ){
 					// null packet - drop count has no mean
 					// do nothing
 				}else if( (header.adaptation_field_control & 0x01) == 0 ){
 					// no payload : continuity_counter should not increment
 					if(lcc != header.continuity_counter){
-						stat[pid].drop += 1;
-						add_drop_info(resync_report, resync_count, resync_log_max, pid, offset+(curr-buf));
+						dropped = 1;
 					}
 				}else if(lcc == header.continuity_counter){
 					// has payload and same continuity_counter
 					if(memcmp(stat[pid].last_packet, curr, 188) != 0){
 						// non-duplicate packet
-						stat[pid].drop += 1;
-						add_drop_info(resync_report, resync_count, resync_log_max, pid, offset+(curr-buf));
+						dropped = 1;
 					}
 					stat[pid].duplicate_count += 1;
 					if(stat[pid].duplicate_count > 1){
 						// duplicate packet count exceeds limit (two)
-						stat[pid].drop += 1;
-						add_drop_info(resync_report, resync_count, resync_log_max, pid, offset+(curr-buf));
+						dropped = 1;
 					}
 				}else{
 					m = (lcc + 1) & 0x0f;
 					if(m != header.continuity_counter){
-						stat[pid].drop += 1;
-						add_drop_info(resync_report, resync_count, resync_log_max, pid, offset+(curr-buf));
+						dropped = 1;
 					}
 					stat[pid].duplicate_count = 0;
 				}
+				if(dropped){
+					if(stat[pid].report_drop){
+						if(resync_count < resync_log_max){
+							resync_report[resync_count].miss =
+								resync_report[resync_count].sync = offset+(curr-buf);
+						}
+						resync_count += 1;
+						for(i=0;i<8192;i++){
+							stat[i].report_drop = 0;
+						}
+					}
+					stat[pid].drop += 1;
+					add_drop_info(resync_report, resync_count, resync_log_max, pid, offset+(curr-buf));
+				}
 			}
+			stat[pid].report_drop = REPORT_DROP;
 			stat[pid].last_continuity_counter = header.continuity_counter;
 			stat[pid].total += 1;
 			if(header.transport_error_indicator != 0){
@@ -366,6 +389,9 @@ static void tsdump(const char *path)
 				resync_report[resync_count].sync = offset+(curr-buf);
 			}
 			resync_count += 1;
+			for(i=0;i<8192;i++){
+				stat[i].report_drop = 0;
+			}
 			if( (p+188) > tail ){
 				break;
 			}
@@ -382,37 +408,49 @@ static void tsdump(const char *path)
 		}
 		lcc = stat[pid].last_continuity_counter;
 		if( (lcc >= 0) && (adapt.discontinuity_counter == 0) ){
+			dropped = 0;
 			if( pid == 0x1fff ){
 				// null packet - drop count has no mean
 				// do nothing
 			}else if( (header.adaptation_field_control & 0x01) == 0 ){
 				// no payload : continuity_counter should not increment
 				if(lcc != header.continuity_counter){
-					stat[pid].drop += 1;
-					add_drop_info(resync_report, resync_count, resync_log_max, pid, offset+(curr-buf));
+					dropped = 1;
 				}
 			}else if(lcc == header.continuity_counter){
 				// has payload and same continuity_counter
 				if(memcmp(stat[pid].last_packet, curr, 188) != 0){
 					// non-duplicate packet
-					stat[pid].drop += 1;
-					add_drop_info(resync_report, resync_count, resync_log_max, pid, offset+(curr-buf));
+					dropped = 1;
 				}
 				stat[pid].duplicate_count += 1;
 				if(stat[pid].duplicate_count > 1){
 					// duplicate packet count exceeds limit (two)
-					stat[pid].drop += 1;
-					add_drop_info(resync_report, resync_count, resync_log_max, pid, offset+(curr-buf));
+					dropped = 1;
 				}
 			}else{
 				m = (lcc + 1) & 0x0f;
 				if(m != header.continuity_counter){
-					stat[pid].drop += 1;
-					add_drop_info(resync_report, resync_count, resync_log_max, pid, offset+(curr-buf));
+					dropped = 1;
 				}
 				stat[pid].duplicate_count = 0;
 			}
+			if(dropped){
+				if(stat[pid].report_drop){
+					if(resync_count < resync_log_max){
+						resync_report[resync_count].miss =
+							resync_report[resync_count].sync = offset+(curr-buf);
+					}
+					resync_count += 1;
+					for(i=0;i<8192;i++){
+						stat[i].report_drop = 0;
+					}
+				}
+				stat[pid].drop += 1;
+				add_drop_info(resync_report, resync_count, resync_log_max, pid, offset+(curr-buf));
+			}
 		}
+		stat[pid].report_drop = REPORT_DROP;
 		stat[pid].last_continuity_counter = header.continuity_counter;
 		stat[pid].total += 1;
 		if(header.transport_error_indicator != 0){
@@ -908,13 +946,15 @@ static void print_resync_report(RESYNC_REPORT *report, int count, int max)
 	}
 
 	for(i=0;i<m;i++){
-		printf("  resync[%d] : miss=0x%012"PRIx64", sync=0x%012"PRIx64", drop=%"PRId64"\n", i, report[i].miss, report[i].sync, report[i].drop_count);
+		printf("  resync[%d]%s : miss=%"PRId64", sync=%"PRId64", drop=%"PRId64"\n",
+		       i, (report[i].miss == report[i].sync ? "(drop only)" : ""),
+		       report[i].miss, report[i].sync, report[i].drop_count);
 		n = (int)report[i].drop_count;
 		if(n > 4){
 			n = 4;
 		}
 		for(j=0;j<n;j++){
-			printf("    drop[%d] : pid=0x%04x, pos=0x%012"PRIx64"\n", j, report[i].drop_pid[j], report[i].drop_pos[j]);
+			printf("    drop[%d] : pid=0x%04x, pos=%"PRId64"\n", j, report[i].drop_pid[j], report[i].drop_pos[j]);
 		}
 	}
 }
