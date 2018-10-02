@@ -1,31 +1,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#ifdef __APPLE__
-#include <sys/uio.h>
-#else
-#include <sys/io.h>
-#endif
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include <inttypes.h>
 
-#define __int64 int64_t
-
+#ifdef _WIN32
+#define FOPEN_BINARY "bS"
+#else
+#define FOPEN_BINARY
+#endif
 
 typedef struct {
 
 	int           pid;
 	int           last_continuity_counter;
 
-	__int64       first;
-	__int64       total;
-	__int64       error;
-	__int64       drop;
-	__int64       scrambling;
+	int64_t       first;
+	int64_t       total;
+	int64_t       error;
+	int64_t       drop;
+	int64_t       scrambling;
 
 	unsigned char last_packet[188];
 	int           duplicate_count;
@@ -34,13 +27,13 @@ typedef struct {
 
 typedef struct {
 
-	__int64       miss;
-	__int64       sync;
+	int64_t       miss;
+	int64_t       sync;
 
-	__int64       drop_count;
+	int64_t       drop_count;
 
 	short         drop_pid[4];
-	__int64       drop_pos[4];
+	int64_t       drop_pos[4];
 
 } RESYNC_REPORT;
 
@@ -68,8 +61,8 @@ typedef struct {
 	int           transport_private_data_flag;
 	int           adaptation_field_extension_flag;
 
-	__int64       program_clock_reference;
-	__int64       original_program_clock_reference;
+	int64_t       program_clock_reference;
+	int64_t       original_program_clock_reference;
 
 	int           splice_countdown;
 
@@ -83,7 +76,7 @@ typedef struct {
 	int           ltw_offset;
 	int           piecewise_rate;
 	int           splice_type;
-	__int64       dts_next_au;
+	int64_t       dts_next_au;
 
 } ADAPTATION_FIELD;
 
@@ -98,10 +91,10 @@ static void extract_ts_header(TS_HEADER *dst, unsigned char *packet);
 static void extract_adaptation_field(ADAPTATION_FIELD *dst, unsigned char *data);
 static int check_unit_invert(unsigned char *head, unsigned char *tail);
 
-static void add_drop_info(RESYNC_REPORT *report, int count, int max, int pid, __int64 pos);
+static void add_drop_info(RESYNC_REPORT *report, int count, int max, int pid, int64_t pos);
 static void print_resync_report(RESYNC_REPORT *report, int count, int max);
 
-static void show_tdt_or_tot(TS_HEADER *hdr, unsigned char *packet, __int64 pos);
+static void show_tdt_or_tot(TS_HEADER *hdr, unsigned char *packet, int64_t pos);
 
 int main(int argc, char **argv)
 {
@@ -178,8 +171,8 @@ static void tsdump(const char *path)
 	int i,m,n;
 	int unit_size;
 
-	__int64 offset;
-	__int64 total;
+	int64_t offset;
+	int64_t total;
 
 	TS_STATUS *stat;
 	TS_HEADER  header;
@@ -202,19 +195,25 @@ static void tsdump(const char *path)
 	resync_log_max = sizeof(resync_report)/sizeof(RESYNC_REPORT);
 	resync_count = 0;
 
-	fp = fopen(path, "r");
+	fp = fopen(path, "r" FOPEN_BINARY);
 	if(fp == NULL){
 		fprintf(stderr, "error - failed on open(%s) [src]\n", path);
 		goto LAST;
 	}
 
+#ifdef _WIN32
+	_fseeki64(fp, 0, SEEK_END);
+	total = _ftelli64(fp);
+	_fseeki64(fp, 0, SEEK_SET);
+#else
 	fseeko(fp, 0, SEEK_END);
 	total = ftello(fp);
 	fseeko(fp, 0, SEEK_SET);
+#endif
 
 	stat = (TS_STATUS *)calloc(8192, sizeof(TS_STATUS));
 	if(stat == NULL){
-		fprintf(stderr, "error - failed on malloc(size=%ld)\n", sizeof(TS_STATUS)*8192);
+		fprintf(stderr, "error - failed on malloc(size=%d)\n", (int)(sizeof(TS_STATUS)*8192));
 		goto LAST;
 	}
 
@@ -440,8 +439,8 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 
 	TS_HEADER header;
 
-	__int64 offset;
-	__int64 total;
+	int64_t offset;
+	int64_t total;
 
 	unsigned char *p;
 	unsigned char *curr;
@@ -452,21 +451,27 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 	sfp = NULL;
 	dfp = NULL;
 
-	sfp = fopen(src, "r");
+	sfp = fopen(src, "r" FOPEN_BINARY);
 	if(sfp == NULL){
 		fprintf(stderr, "error - failed on open(%s) [src]\n", src);
 		goto LAST;
 	}
 
-	dfp = fopen(dst, "w");
+	dfp = fopen(dst, "w" FOPEN_BINARY);
 	if(dfp == NULL){
 		fprintf(stderr, "error - failed on open(%s) [dst]\n", dst);
 		goto LAST;
 	}
 
+#ifdef _WIN32
+	_fseeki64(sfp, 0, SEEK_END);
+	total = _ftelli64(sfp);
+	_fseeki64(sfp, 0, SEEK_SET);
+#else
 	fseeko(sfp, 0, SEEK_END);
 	total = ftello(sfp);
 	fseeko(sfp, 0, SEEK_SET);
+#endif
 
 	offset = 0;
 	idx = 0;
@@ -816,7 +821,7 @@ static int check_unit_invert(unsigned char *head, unsigned char *tail)
 	return 0;
 }
 
-static void add_drop_info(RESYNC_REPORT *report, int count, int max, int pid, __int64 pos)
+static void add_drop_info(RESYNC_REPORT *report, int count, int max, int pid, int64_t pos)
 {
 	int idx;
 	int n;
@@ -860,7 +865,7 @@ static void print_resync_report(RESYNC_REPORT *report, int count, int max)
 	}
 }
 
-static void show_tdt_or_tot(TS_HEADER *hdr, unsigned char *packet, __int64 pos)
+static void show_tdt_or_tot(TS_HEADER *hdr, unsigned char *packet, int64_t pos)
 {
 	unsigned char *p;
 
