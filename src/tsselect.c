@@ -4,6 +4,8 @@
 #include <inttypes.h>
 
 #ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
 #define FOPEN_BINARY "bS"
 #else
 #define FOPEN_BINARY
@@ -148,7 +150,7 @@ int main(int argc, char **argv)
 static void show_usage()
 {
 	fprintf(stderr, "tsselect - MPEG-2 TS stream(pid) selector ver. 0.1.8\n");
-	fprintf(stderr, "usage: tsselect src.m2t [dst.m2t pid  [more pid ..]]\n");
+	fprintf(stderr, "usage: tsselect src.m2t|- [dst.m2t|- pid [more pid ..]]\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "ex: dump \"src.m2t\" TS information\n");
 	fprintf(stderr, "  tsselect src.m2t\n");
@@ -195,21 +197,34 @@ static void tsdump(const char *path)
 	resync_log_max = sizeof(resync_report)/sizeof(RESYNC_REPORT);
 	resync_count = 0;
 
-	fp = fopen(path, "r" FOPEN_BINARY);
+	if(path[0] == '-' && !path[1]){
+		fp = stdin;
+#ifdef _WIN32
+		if(_setmode(_fileno(fp), _O_BINARY) < 0){
+			fp = NULL;
+		}
+#endif
+	}else{
+		fp = fopen(path, "r" FOPEN_BINARY);
+	}
 	if(fp == NULL){
 		fprintf(stderr, "error - failed on open(%s) [src]\n", path);
 		goto LAST;
 	}
 
+	if(fp == stdin){
+		total = 0;
+	}else{
 #ifdef _WIN32
-	_fseeki64(fp, 0, SEEK_END);
-	total = _ftelli64(fp);
-	_fseeki64(fp, 0, SEEK_SET);
+		_fseeki64(fp, 0, SEEK_END);
+		total = _ftelli64(fp);
+		_fseeki64(fp, 0, SEEK_SET);
 #else
-	fseeko(fp, 0, SEEK_END);
-	total = ftello(fp);
-	fseeko(fp, 0, SEEK_SET);
+		fseeko(fp, 0, SEEK_END);
+		total = ftello(fp);
+		fseeko(fp, 0, SEEK_SET);
 #endif
+	}
 
 	stat = (TS_STATUS *)calloc(8192, sizeof(TS_STATUS));
 	if(stat == NULL){
@@ -314,8 +329,12 @@ static void tsdump(const char *path)
 		offset += (curr-buf);
 
 		if( (idx & 0x0f) == 0 ){
-			n = (int)(10000*offset/total);
-			fprintf(stderr, "\rprocessing: %2d.%02d%%", n/100, n%100);
+			if(total <= 0){
+				fprintf(stderr, "\rprocessing: %5dM", (int)(offset/1024/1024));
+			}else{
+				n = (int)(10000*offset/total);
+				fprintf(stderr, "\rprocessing: %2d.%02d%%", n/100, n%100);
+			}
 		}
 		idx += 1;
 
@@ -407,6 +426,7 @@ static void tsdump(const char *path)
 	}
 
 	fprintf(stderr, "\rprocessing: finish\n");
+	fflush(stderr);
 
 LAST:
 	if(resync_count > 0){
@@ -424,7 +444,9 @@ LAST:
 	}
 
 	if(fp != NULL){
-		fclose(fp);
+		if(fp != stdin){
+			fclose(fp);
+		}
 		fp = NULL;
 	}
 }
@@ -451,27 +473,49 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 	sfp = NULL;
 	dfp = NULL;
 
-	sfp = fopen(src, "r" FOPEN_BINARY);
+	if(src[0] == '-' && !src[1]){
+		sfp = stdin;
+#ifdef _WIN32
+		if(_setmode(_fileno(sfp), _O_BINARY) < 0){
+			sfp = NULL;
+		}
+#endif
+	}else{
+		sfp = fopen(src, "r" FOPEN_BINARY);
+	}
 	if(sfp == NULL){
 		fprintf(stderr, "error - failed on open(%s) [src]\n", src);
 		goto LAST;
 	}
 
-	dfp = fopen(dst, "w" FOPEN_BINARY);
+	if(dst[0] == '-' && !dst[1]){
+		dfp = stdout;
+#ifdef _WIN32
+		if(_setmode(_fileno(dfp), _O_BINARY) < 0){
+			dfp = NULL;
+		}
+#endif
+	}else{
+		dfp = fopen(dst, "w" FOPEN_BINARY);
+	}
 	if(dfp == NULL){
 		fprintf(stderr, "error - failed on open(%s) [dst]\n", dst);
 		goto LAST;
 	}
 
+	if(sfp == stdin){
+		total = 0;
+	}else{
 #ifdef _WIN32
-	_fseeki64(sfp, 0, SEEK_END);
-	total = _ftelli64(sfp);
-	_fseeki64(sfp, 0, SEEK_SET);
+		_fseeki64(sfp, 0, SEEK_END);
+		total = _ftelli64(sfp);
+		_fseeki64(sfp, 0, SEEK_SET);
 #else
-	fseeko(sfp, 0, SEEK_END);
-	total = ftello(sfp);
-	fseeko(sfp, 0, SEEK_SET);
+		fseeko(sfp, 0, SEEK_END);
+		total = ftello(sfp);
+		fseeko(sfp, 0, SEEK_SET);
 #endif
+	}
 
 	offset = 0;
 	idx = 0;
@@ -511,8 +555,12 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 		offset += (curr-buf);
 
 		if( (idx & 0x0f) == 0 ){
-			n = (int)(10000*offset/total);
-			fprintf(stderr, "\rprocessing: %2d.%02d%%", n/100, n%100);
+			if(total <= 0){
+				fprintf(stderr, "\rprocessing: %5dM", (int)(offset/1024/1024));
+			}else{
+				n = (int)(10000*offset/total);
+				fprintf(stderr, "\rprocessing: %2d.%02d%%", n/100, n%100);
+			}
 		}
 		idx += 1;
 
@@ -555,11 +603,17 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 
 LAST:
 	if(dfp != NULL){
-		fclose(dfp);
+		if(dfp == stdout){
+			fflush(dfp);
+		}else{
+			fclose(dfp);
+		}
 		dfp = NULL;
 	}
 	if(sfp != NULL){
-		fclose(sfp);
+		if(sfp != stdin){
+			fclose(sfp);
+		}
 		sfp = NULL;
 	}
 }
