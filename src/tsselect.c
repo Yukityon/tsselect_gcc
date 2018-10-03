@@ -99,8 +99,8 @@ static void extract_ts_header(TS_HEADER *dst, unsigned char *packet);
 static void extract_adaptation_field(ADAPTATION_FIELD *dst, unsigned char *data);
 static int check_unit_invert(unsigned char *head, unsigned char *tail);
 
-static void add_drop_info(RESYNC_REPORT *report, int count, int max, int pid, int64_t pos);
-static void print_resync_report(RESYNC_REPORT *report, int count, int max);
+static void add_drop_info(RESYNC_REPORT *report, int count, int pid, int64_t pos);
+static void print_resync_report(RESYNC_REPORT *report, int count);
 
 static void show_tdt_or_tot(TS_HEADER *hdr, unsigned char *packet, int64_t pos);
 
@@ -187,9 +187,8 @@ static void tsdump(const char *path)
 	TS_HEADER  header;
 	ADAPTATION_FIELD adapt;
 
-	RESYNC_REPORT resync_report[8];
+	RESYNC_REPORT *resync_report, *rr;
 	int resync_count;
-	int resync_log_max;
 
 	unsigned char *p;
 	unsigned char *curr;
@@ -200,8 +199,7 @@ static void tsdump(const char *path)
 	fp = NULL;
 	stat = NULL;
 
-	memset(resync_report, 0, sizeof(resync_report));
-	resync_log_max = sizeof(resync_report)/sizeof(RESYNC_REPORT);
+	resync_report = (RESYNC_REPORT *)calloc(1, sizeof(RESYNC_REPORT));
 	resync_count = 0;
 
 	if(path[0] == '-' && !path[1]){
@@ -261,15 +259,21 @@ static void tsdump(const char *path)
 		tail = buf + n;
 		while( (curr+unit_size) < tail ){
 			if( (curr[0] != 0x47) || (curr[unit_size] != 0x47) ){
-				if(resync_count < resync_log_max){
-					resync_report[resync_count].miss = offset+(curr-buf);
+				if(resync_report){
+					rr = resync_report;
+					resync_report = (RESYNC_REPORT *)calloc(resync_count+1, sizeof(RESYNC_REPORT));
+					if(resync_report){
+						memcpy(resync_report, rr, sizeof(RESYNC_REPORT)*resync_count);
+						resync_report[resync_count].miss = offset+(curr-buf);
+					}
+					free(rr);
 				}
 				p = resync(curr, tail, unit_size);
 				if(p == NULL){
 					break;
 				}
 				curr = p;
-				if(resync_count < resync_log_max){
+				if(resync_report){
 					resync_report[resync_count].sync = offset+(curr-buf);
 				}
 				resync_count += 1;
@@ -323,9 +327,15 @@ static void tsdump(const char *path)
 				}
 				if(dropped){
 					if(stat[pid].report_drop){
-						if(resync_count < resync_log_max){
-							resync_report[resync_count].miss =
-								resync_report[resync_count].sync = offset+(curr-buf);
+						if(resync_report){
+							rr = resync_report;
+							resync_report = (RESYNC_REPORT *)calloc(resync_count+1, sizeof(RESYNC_REPORT));
+							if(resync_report){
+								memcpy(resync_report, rr, sizeof(RESYNC_REPORT)*resync_count);
+								resync_report[resync_count].miss =
+									resync_report[resync_count].sync = offset+(curr-buf);
+							}
+							free(rr);
 						}
 						resync_count += 1;
 						for(i=0;i<8192;i++){
@@ -333,7 +343,7 @@ static void tsdump(const char *path)
 						}
 					}
 					stat[pid].drop += 1;
-					add_drop_info(resync_report, resync_count, resync_log_max, pid, offset+(curr-buf));
+					add_drop_info(resync_report, resync_count, pid, offset+(curr-buf));
 				}
 			}
 			stat[pid].report_drop = REPORT_DROP;
@@ -377,15 +387,21 @@ static void tsdump(const char *path)
 	tail = buf + n;
 	while( (curr+188) <= tail ){
 		if(curr[0] != 0x47){
-			if(resync_count < resync_log_max){
-				resync_report[resync_count].miss = offset+(curr-buf);
+			if(resync_report){
+				rr = resync_report;
+				resync_report = (RESYNC_REPORT *)calloc(resync_count+1, sizeof(RESYNC_REPORT));
+				if(resync_report){
+					memcpy(resync_report, rr, sizeof(RESYNC_REPORT)*resync_count);
+					resync_report[resync_count].miss = offset+(curr-buf);
+				}
+				free(rr);
 			}
 			p = resync_force(curr, tail, unit_size);
 			if(p == NULL){
 				break;
 			}
 			curr = p;
-			if(resync_count < resync_log_max){
+			if(resync_report){
 				resync_report[resync_count].sync = offset+(curr-buf);
 			}
 			resync_count += 1;
@@ -437,9 +453,15 @@ static void tsdump(const char *path)
 			}
 			if(dropped){
 				if(stat[pid].report_drop){
-					if(resync_count < resync_log_max){
-						resync_report[resync_count].miss =
-							resync_report[resync_count].sync = offset+(curr-buf);
+					if(resync_report){
+						rr = resync_report;
+						resync_report = (RESYNC_REPORT *)calloc(resync_count+1, sizeof(RESYNC_REPORT));
+						if(resync_report){
+							memcpy(resync_report, rr, sizeof(RESYNC_REPORT)*resync_count);
+							resync_report[resync_count].miss =
+								resync_report[resync_count].sync = offset+(curr-buf);
+						}
+						free(rr);
 					}
 					resync_count += 1;
 					for(i=0;i<8192;i++){
@@ -447,7 +469,7 @@ static void tsdump(const char *path)
 					}
 				}
 				stat[pid].drop += 1;
-				add_drop_info(resync_report, resync_count, resync_log_max, pid, offset+(curr-buf));
+				add_drop_info(resync_report, resync_count, pid, offset+(curr-buf));
 			}
 		}
 		stat[pid].report_drop = REPORT_DROP;
@@ -468,8 +490,9 @@ static void tsdump(const char *path)
 
 LAST:
 	if(resync_count > 0){
-		print_resync_report(resync_report, resync_count, resync_log_max);
+		print_resync_report(resync_report, resync_count);
 	}
+	free(resync_report);
 
 	if(stat){
 		for(i=0;i<8192;i++){
@@ -913,13 +936,13 @@ static int check_unit_invert(unsigned char *head, unsigned char *tail)
 	return 0;
 }
 
-static void add_drop_info(RESYNC_REPORT *report, int count, int max, int pid, int64_t pos)
+static void add_drop_info(RESYNC_REPORT *report, int count, int pid, int64_t pos)
 {
 	int idx;
 	int n;
 
 	idx = count - 1;
-	if( (idx >= max) || (idx < 0) ){
+	if( (report == NULL) || (idx < 0) ){
 		// do nothing
 		return;
 	}
@@ -933,7 +956,7 @@ static void add_drop_info(RESYNC_REPORT *report, int count, int max, int pid, in
 	report[idx].drop_count += 1;
 }
 
-static void print_resync_report(RESYNC_REPORT *report, int count, int max)
+static void print_resync_report(RESYNC_REPORT *report, int count)
 {
 	int i,j;
 	int m,n;
@@ -941,8 +964,8 @@ static void print_resync_report(RESYNC_REPORT *report, int count, int max)
 	printf("total sync error: %d\n", count);
 
 	m = count;
-	if(m > max){
-		m = max;
+	if(report == NULL){
+		m = 0;
 	}
 
 	for(i=0;i<m;i++){
