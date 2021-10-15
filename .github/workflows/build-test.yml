@@ -1,0 +1,29 @@
+on: push
+permissions:
+  contents: read
+jobs:
+  build-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build
+        working-directory: ./src
+        run: make
+      - name: Test
+        working-directory: ./src
+        run: |
+          printf "" >src.m2t
+          for i in `seq 0 9`; do
+          printf "\x47\0\0\x1$i" >>src.m2t
+          for j in `seq 23`; do printf UUUUUUUU >>src.m2t; done
+          printf "\x47\x12\x34\x1$i" >>src.m2t
+          for j in `seq 23`; do printf UUUUUUUU >>src.m2t; done
+          printf "\x47\x12\x35\x1$i" >>src.m2t
+          for j in `seq 23`; do printf UUUUUUUU >>src.m2t; done
+          done
+          test "2911918438 3760" = "`./tsselect src.m2t - -x 0x1234 | cksum | head -c 15`"
