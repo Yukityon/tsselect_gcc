@@ -43,6 +43,11 @@ typedef struct {
 	short         drop_pid[4];
 	int64_t       drop_pos[4];
 
+	int           last_mjd, mjd;
+	int           last_h, h;
+	int           last_m, m;
+	int           last_s, s;
+
 } RESYNC_REPORT;
 
 typedef struct {
@@ -101,7 +106,11 @@ static int check_unit_invert(unsigned char *head, unsigned char *tail);
 
 static void add_drop_info(RESYNC_REPORT *report, int count, int pid, int64_t pos);
 static void print_resync_report(RESYNC_REPORT *report, int count);
+static void set_resync_report_last_time(RESYNC_REPORT *report, int mjd, int h, int m, int s);
+static void update_resync_report_time(RESYNC_REPORT *report, int count, int mjd, int h, int m, int s);
+static void mjd_to_ymd(int mjd, int *y, int *m, int *d);
 
+static int find_packet_time_data(unsigned char **time_data, const TS_HEADER *hdr, unsigned char *packet);
 static void show_tdt_or_tot(TS_HEADER *hdr, unsigned char *packet, int64_t pos);
 
 int main(int argc, char **argv)
@@ -186,6 +195,10 @@ static void tsdump(const char *path)
 	TS_STATUS *stat;
 	TS_HEADER  header;
 	ADAPTATION_FIELD adapt;
+	int last_mjd = 0;
+	int last_h = 0;
+	int last_m = 0;
+	int last_s = 0;
 
 	RESYNC_REPORT *resync_report, *rr;
 	int resync_count;
@@ -275,6 +288,7 @@ static void tsdump(const char *path)
 				curr = p;
 				if(resync_report){
 					resync_report[resync_count].sync = offset+(curr-buf);
+					set_resync_report_last_time(resync_report + resync_count, last_mjd, last_h, last_m, last_s);
 				}
 				resync_count += 1;
 				for(i=0;i<8192;i++){
@@ -293,6 +307,20 @@ static void tsdump(const char *path)
 			}
 
 			pid = header.pid;
+			if(pid == 0x14){
+				/* maybe TDT or TOT */
+				unsigned char *time_data;
+				int table_id = find_packet_time_data(&time_data, &header, curr);
+				if(table_id == 0x70 || table_id == 0x73){
+					/* TDT or TOT */
+					last_mjd = (time_data[0] << 8) | time_data[1];
+					last_mjd = last_mjd < 15079 ? 15079 : last_mjd;
+					last_h = ((time_data[2] >> 4) & 3) * 10 + (time_data[2] & 15);
+					last_m = ((time_data[3] >> 4) & 7) * 10 + (time_data[3] & 15);
+					last_s = ((time_data[4] >> 4) & 7) * 10 + (time_data[4] & 15);
+					update_resync_report_time(resync_report, resync_count, last_mjd, last_h, last_m, last_s);
+				}
+			}
 			if(stat[pid].first < 0){
 				stat[pid].first = offset + (curr-buf);
 			}
@@ -334,6 +362,7 @@ static void tsdump(const char *path)
 								memcpy(resync_report, rr, sizeof(RESYNC_REPORT)*resync_count);
 								resync_report[resync_count].miss =
 									resync_report[resync_count].sync = offset+(curr-buf);
+								set_resync_report_last_time(resync_report + resync_count, last_mjd, last_h, last_m, last_s);
 							}
 							free(rr);
 						}
@@ -403,6 +432,7 @@ static void tsdump(const char *path)
 			curr = p;
 			if(resync_report){
 				resync_report[resync_count].sync = offset+(curr-buf);
+				set_resync_report_last_time(resync_report + resync_count, last_mjd, last_h, last_m, last_s);
 			}
 			resync_count += 1;
 			for(i=0;i<8192;i++){
@@ -460,6 +490,7 @@ static void tsdump(const char *path)
 							memcpy(resync_report, rr, sizeof(RESYNC_REPORT)*resync_count);
 							resync_report[resync_count].miss =
 								resync_report[resync_count].sync = offset+(curr-buf);
+							set_resync_report_last_time(resync_report + resync_count, last_mjd, last_h, last_m, last_s);
 						}
 						free(rr);
 					}
@@ -960,6 +991,7 @@ static void print_resync_report(RESYNC_REPORT *report, int count)
 {
 	int i,j;
 	int m,n;
+	int year,month,date;
 
 	printf("total sync error: %d\n", count);
 
@@ -972,6 +1004,22 @@ static void print_resync_report(RESYNC_REPORT *report, int count)
 		printf("  resync[%d]%s : miss=%"PRId64", sync=%"PRId64", drop=%"PRId64"\n",
 		       i, (report[i].miss == report[i].sync ? "(drop only)" : ""),
 		       report[i].miss, report[i].sync, report[i].drop_count);
+		if(report[i].last_mjd || report[i].mjd){
+			if(report[i].last_mjd){
+				mjd_to_ymd(report[i].last_mjd, &year, &month, &date);
+				printf("    time : %d-%02d-%02dT%02d:%02d:%02d",
+				       year, month, date, report[i].last_h, report[i].last_m, report[i].last_s);
+			}else{
+				printf("    time : --");
+			}
+			if(report[i].mjd){
+				mjd_to_ymd(report[i].mjd, &year, &month, &date);
+				printf(", %d-%02d-%02dT%02d:%02d:%02d\n",
+				       year, month, date, report[i].h, report[i].m, report[i].s);
+			}else{
+				printf(", --\n");
+			}
+		}
 		n = (int)report[i].drop_count;
 		if(n > 4){
 			n = 4;
@@ -982,7 +1030,38 @@ static void print_resync_report(RESYNC_REPORT *report, int count)
 	}
 }
 
-static void show_tdt_or_tot(TS_HEADER *hdr, unsigned char *packet, int64_t pos)
+static void set_resync_report_last_time(RESYNC_REPORT *report, int mjd, int h, int m, int s)
+{
+	report->last_mjd = mjd;
+	report->last_h = h;
+	report->last_m = m;
+	report->last_s = s;
+}
+
+static void update_resync_report_time(RESYNC_REPORT *report, int count, int mjd, int h, int m, int s)
+{
+	int i;
+
+	for(i = count - 1; report && i >= 0 && !report[i].mjd; i--){
+		report[i].mjd = mjd;
+		report[i].h = h;
+		report[i].m = m;
+		report[i].s = s;
+	}
+}
+
+static void mjd_to_ymd(int mjd, int *y, int *m, int *d)
+{
+	int yd = (mjd * 20 - 301564) / 7305;
+	int md = (mjd * 10000 - 149561000 - yd * 1461 / 4 * 10000) / 306001;
+	int k = (md == 14 || md == 15) ? 1 : 0;
+
+	*y = yd + k + 1900;
+	*m = md - 1 - k * 12;
+	*d = mjd - 14956 - yd * 1461 / 4 - md * 306001 / 10000;
+}
+
+static int find_packet_time_data(unsigned char **time_data, const TS_HEADER *hdr, unsigned char *packet)
 {
 	unsigned char *p;
 
@@ -991,17 +1070,37 @@ static void show_tdt_or_tot(TS_HEADER *hdr, unsigned char *packet, int64_t pos)
 
 	p = packet + 4;
 	if(hdr->adaptation_field_control & 0x02){
+		if(p[0] > 182){
+			return 0;
+		}
+		/* adaptation length */
 		p += (p[0]+1);
 	}
 	if(hdr->payload_unit_start_indicator == 0){
 		/* do nothing */
-		return;
+		return 0;
 	}
+	if((int)(p - packet) + p[0] > 184){
+		return 0;
+	}
+	/* pointer */
 	p += (p[0]+1);
 
 	table_id = p[0];
 	length = ((p[1]<<8)|p[2]) & 0x0fff;
 	p += 3;
+	if(length < 5 || (int)(p - packet) + 5 > 188){
+		return 0;
+	}
+
+	*time_data = p;
+	return table_id;
+}
+
+static void show_tdt_or_tot(TS_HEADER *hdr, unsigned char *packet, int64_t pos)
+{
+	unsigned char *p;
+	int table_id = find_packet_time_data(&p, hdr, packet);
 
 	if(table_id == 0x70){
 		/* TDT */
