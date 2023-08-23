@@ -207,7 +207,7 @@ static void tsdump(const char *path)
 	unsigned char *curr;
 	unsigned char *tail;
 
-	unsigned char buf[8192];
+	unsigned char buf[32768];
 
 	fp = NULL;
 	stat = NULL;
@@ -259,7 +259,7 @@ static void tsdump(const char *path)
 
 	offset = 0;
 	idx = 0;
-	n = fread(buf, 1, sizeof(buf), fp);
+	n = fread(buf, 1, sizeof(buf) / 4, fp);
 
 	unit_size = select_unit_size(buf, buf+n);
 	if(unit_size < 188){
@@ -390,7 +390,7 @@ static void tsdump(const char *path)
 
 		offset += (curr-buf);
 
-		if( (idx & 0x0f) == 0 ){
+		if( (idx & 0x1f) == 0 ){
 			if(total <= 0){
 				fprintf(stderr, "\rprocessing: %5dM", (int)(offset/1024/1024));
 			}else{
@@ -646,7 +646,7 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 
 		offset += (curr-buf);
 
-		if( (idx & 0x0f) == 0 ){
+		if( (idx & 0x7f) == 0 ){
 			if(total <= 0){
 				fprintf(stderr, "\rprocessing: %5dM", (int)(offset/1024/1024));
 			}else{
