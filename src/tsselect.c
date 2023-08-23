@@ -6,9 +6,29 @@
 #ifdef _WIN32
 #include <io.h>
 #include <fcntl.h>
-#define FOPEN_BINARY "bS"
+#define my_fseek _fseeki64
+#define my_ftell _ftelli64
+
+#ifdef UNICODE
+#include <wchar.h>
+#define my_fopen _wfopen
+#define FOPEN_BINARY(mode) L ## mode L"bS"
+#define PRI_PATH_STR "ls"
+typedef const wchar_t * PATH_STR;
 #else
-#define FOPEN_BINARY
+#define my_fopen fopen
+#define FOPEN_BINARY(mode) mode "bS"
+#define PRI_PATH_STR "s"
+typedef const char * PATH_STR;
+#endif
+
+#else
+#define my_fseek fseeko
+#define my_ftell ftello
+#define my_fopen fopen
+#define FOPEN_BINARY(mode) mode
+#define PRI_PATH_STR "s"
+typedef const char * PATH_STR;
 #endif
 
 /* report drops as with resync */
@@ -95,8 +115,8 @@ typedef struct {
 
 static void show_usage();
 
-static void tsdump(const char *path);
-static void tsselect(const char *src, const char *dst, const unsigned char *pid);
+static void tsdump(PATH_STR path);
+static void tsselect(PATH_STR src, PATH_STR dst, const unsigned char *pid);
 static int select_unit_size(unsigned char *head, unsigned char *tail);
 static unsigned char *resync(unsigned char *head, unsigned char *tail, int unit_size);
 static unsigned char *resync_force(unsigned char *head, unsigned char *tail, int unit_size);
@@ -113,7 +133,11 @@ static void mjd_to_ymd(int mjd, int *y, int *m, int *d);
 static int find_packet_time_data(unsigned char **time_data, const TS_HEADER *hdr, unsigned char *packet);
 static void show_tdt_or_tot(TS_HEADER *hdr, unsigned char *packet, int64_t pos);
 
+#if defined(_WIN32) && defined(UNICODE)
+int wmain(int argc, wchar_t **argv)
+#else
 int main(int argc, char **argv)
+#endif
 {
 	if(argc < 2){
 		show_usage();
@@ -136,14 +160,18 @@ int main(int argc, char **argv)
 				    (argv[i][1] == 'X') ){
 					exclude = 1;
 				}else{
-					fprintf(stderr, "error - invalid option '-%c'\n", argv[i][1]);
+					fprintf(stderr, "error - invalid option '-%c'\n", (char)argv[i][1]);
 					show_usage();
 					exit(EXIT_FAILURE);
 				}
 				continue;
 			}
 
+#if defined(_WIN32) && defined(UNICODE)
+			n = wcstol(argv[i], NULL, 0);
+#else
 			n = strtol(argv[i], NULL, 0);
+#endif
 			if( (n >= 0) && (n < 8192) ){
 				pid[n] = 1;
 			}
@@ -178,7 +206,7 @@ static void show_usage()
 	fprintf(stderr, "\n");
 }
 
-static void tsdump(const char *path)
+static void tsdump(PATH_STR path)
 {
 	FILE *fp;
 
@@ -223,25 +251,19 @@ static void tsdump(const char *path)
 		}
 #endif
 	}else{
-		fp = fopen(path, "r" FOPEN_BINARY);
+		fp = my_fopen(path, FOPEN_BINARY("r"));
 	}
 	if(fp == NULL){
-		fprintf(stderr, "error - failed on open(%s) [src]\n", path);
+		fprintf(stderr, "error - failed on open(%" PRI_PATH_STR ") [src]\n", path);
 		goto LAST;
 	}
 
 	if(fp == stdin){
 		total = 0;
 	}else{
-#ifdef _WIN32
-		_fseeki64(fp, 0, SEEK_END);
-		total = _ftelli64(fp);
-		_fseeki64(fp, 0, SEEK_SET);
-#else
-		fseeko(fp, 0, SEEK_END);
-		total = ftello(fp);
-		fseeko(fp, 0, SEEK_SET);
-#endif
+		my_fseek(fp, 0, SEEK_END);
+		total = my_ftell(fp);
+		my_fseek(fp, 0, SEEK_SET);
 	}
 
 	stat = (TS_STATUS *)calloc(8192, sizeof(TS_STATUS));
@@ -543,7 +565,7 @@ LAST:
 	}
 }
 
-static void tsselect(const char *src, const char *dst, const unsigned char *pid)
+static void tsselect(PATH_STR src, PATH_STR dst, const unsigned char *pid)
 {
 	FILE *sfp, *dfp;
 
@@ -573,10 +595,10 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 		}
 #endif
 	}else{
-		sfp = fopen(src, "r" FOPEN_BINARY);
+		sfp = my_fopen(src, FOPEN_BINARY("r"));
 	}
 	if(sfp == NULL){
-		fprintf(stderr, "error - failed on open(%s) [src]\n", src);
+		fprintf(stderr, "error - failed on open(%" PRI_PATH_STR ") [src]\n", src);
 		goto LAST;
 	}
 
@@ -588,25 +610,19 @@ static void tsselect(const char *src, const char *dst, const unsigned char *pid)
 		}
 #endif
 	}else{
-		dfp = fopen(dst, "w" FOPEN_BINARY);
+		dfp = my_fopen(dst, FOPEN_BINARY("w"));
 	}
 	if(dfp == NULL){
-		fprintf(stderr, "error - failed on open(%s) [dst]\n", dst);
+		fprintf(stderr, "error - failed on open(%" PRI_PATH_STR ") [dst]\n", dst);
 		goto LAST;
 	}
 
 	if(sfp == stdin){
 		total = 0;
 	}else{
-#ifdef _WIN32
-		_fseeki64(sfp, 0, SEEK_END);
-		total = _ftelli64(sfp);
-		_fseeki64(sfp, 0, SEEK_SET);
-#else
-		fseeko(sfp, 0, SEEK_END);
-		total = ftello(sfp);
-		fseeko(sfp, 0, SEEK_SET);
-#endif
+		my_fseek(sfp, 0, SEEK_END);
+		total = my_ftell(sfp);
+		my_fseek(sfp, 0, SEEK_SET);
 	}
 
 	offset = 0;
